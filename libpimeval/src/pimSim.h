@@ -155,6 +155,8 @@ public:
   // SIMDRAM micro ops
   bool pimOpAP(int numSrc, va_list args);
   bool pimOpAAP(int numSrc, int numDest, va_list args);
+  // Generic analog AAP operation
+  bool pimGenericAAP(PimAnalogOpEnum op, const std::vector<std::pair<PimObjId, unsigned>>& srcs, const std::vector<std::pair<PimObjId, unsigned>>& dests);
 
 private:
   pimSim();

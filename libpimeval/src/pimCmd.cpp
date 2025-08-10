@@ -102,6 +102,7 @@ pimCmd::getName(PimCmdEnum cmdType, const std::string& suffix)
     { PimCmdEnum::RREG_ROTATE_L, "rreg.rotate_l" },
     { PimCmdEnum::ROW_AP, "row_ap" },
     { PimCmdEnum::ROW_AAP, "row_aap" },
+    { PimCmdEnum::GENERIC_AAP, "generic_aap" },
   };
   auto it = cmdNames.find(cmdType);
   return it != cmdNames.end() ? it->second + suffix : "unknown";
@@ -1895,6 +1896,139 @@ pimCmdAnalogAAP::printDebugInfo() const
   }
   std::printf("PIM-MicroOp: %s (#src = %lu, #dest = %lu, rows =%s)\n",
               getName().c_str(), m_srcRows.size(), m_destRows.size(), msg.c_str());
+}
+
+//! @brief  Pim CMD: Generic analog AAP operation
+bool
+pimCmdGenericAAP::execute()
+{
+  if (m_debugCmds) {
+    std::printf("PIM-MicroOp: %s (#src = %lu, #dest = %lu, op = %d)\n",
+        getName().c_str(), m_srcRows.size(), m_destRows.size(), static_cast<int>(m_op));
+  }
+
+  // Sanity check
+  if (m_srcRows.empty()) {
+    std::printf("PIM-Error: Generic-AAP: No src rows\n");
+    return false;
+  }
+
+  pimResMgr* resMgr = m_device->getResMgr();
+  const pimObjInfo& objSrc = resMgr->getObjInfo(m_srcRows[0].first);
+  std::vector<std::pair<PimObjId, unsigned>> allRows = m_srcRows;
+  allRows.insert(allRows.end(), m_destRows.begin(), m_destRows.end());
+
+  // Sanity check
+  std::unordered_set<unsigned> visitedRows;
+  for (auto [objId, ofst] : allRows) {
+    const pimObjInfo& obj = resMgr->getObjInfo(objId);
+    unsigned rowIdx = obj.getRegions()[0].getRowIdx() + ofst;
+    if (!isValidObjId(resMgr, objId)) {
+      std::printf("PIM-Error: Generic-AAP: Invalid obj id %d\n", objId);
+      return false;
+    }
+    if (obj.getMaxNumRegionsPerCore() > 1) {
+      std::printf("PIM-Error: Generic-AAP: Wrap-around allocaiton is not supported\n");
+      return false;
+    }
+    if (!isAssociated(objSrc, obj)) {
+      std::printf("PIM-Error: Generic-AAP: PIM objects are not associated\n");
+      return false;
+    }
+    if (visitedRows.find(rowIdx) != visitedRows.end()) {
+      std::printf("PIM-Error: Generic-AAP: Cannot access same src row multiple times during AP/AAP\n");
+      return false;
+    } else {
+      visitedRows.insert(rowIdx);
+    }
+  }
+  switch (m_op) {
+    case PimAnalogOpEnum::ROW_CLONE:
+    case PimAnalogOpEnum::NOT:
+      if (m_srcRows.size() != 1) {
+        std::printf("PIM-Error: Generic-AAP: 1 src row required\n");
+        return false;
+      }
+      break;
+    case PimAnalogOpEnum::AND2:
+    case PimAnalogOpEnum::NAND2:
+    case PimAnalogOpEnum::OR2:
+    case PimAnalogOpEnum::NOR2:
+    case PimAnalogOpEnum::XOR2:
+    case PimAnalogOpEnum::XNOR2:
+      if (m_srcRows.size() != 2) {
+        std::printf("PIM-Error: Generic-AAP: 2 src rows required\n");
+        return false;
+      }
+      break;
+    case PimAnalogOpEnum::MAJ3:
+    case PimAnalogOpEnum::XOR3:
+      if (m_srcRows.size() != 3) {
+        std::printf("PIM-Error: Generic-AAP: 3 src rows required\n");
+        return false;
+      }
+      break;
+    default:
+      assert(0);
+  }
+
+  // Generic AAP
+  unsigned numCols = m_device->getNumCols();
+  for (unsigned i = 0; i < objSrc.getRegions().size(); ++i) {
+    const pimRegion& srcRegion = objSrc.getRegions()[i];
+    PimCoreId coreId = srcRegion.getCoreId();
+    pimCore &core = m_device->getCore(coreId);
+    for (unsigned colIdx = 0; colIdx < numCols; ++colIdx) {
+      std::vector<int> operands;
+      for (auto [objId, ofst] : m_srcRows) {
+        const pimObjInfo& obj = resMgr->getObjInfo(objId);
+        unsigned rowIdx = obj.getRegions()[i].getRowIdx() + ofst;
+        bool isDCCN = obj.isDualContactRef();
+        bool val = core.getBit(rowIdx, colIdx);
+        operands.push_back(isDCCN ? !val : val);
+      }
+      bool result = false;
+      switch (m_op) {
+        case PimAnalogOpEnum::ROW_CLONE: result = operands[0]; break;
+        case PimAnalogOpEnum::MAJ3: result = ((operands[0] & operands[1]) || (operands[0] & operands[2]) || (operands[1] & operands[2])); break;
+        case PimAnalogOpEnum::NOT: result = !operands[0]; break;
+        case PimAnalogOpEnum::AND2: result = operands[0] & operands[1]; break;
+        case PimAnalogOpEnum::NAND2: result = !(operands[0] & operands[1]); break;
+        case PimAnalogOpEnum::OR2: result = operands[0] | operands[1]; break;
+        case PimAnalogOpEnum::NOR2: result = !(operands[0] | operands[1]); break;
+        case PimAnalogOpEnum::XOR2: result = operands[0] ^ operands[1]; break;
+        case PimAnalogOpEnum::XOR3: result = (operands[0] ^ operands[1] ^ operands[2]); break;
+        case PimAnalogOpEnum::XNOR2: result = !(operands[0] ^ operands[1]); break;
+        default: assert(0);
+      }
+      for (auto [objId, ofst] : allRows) {
+        const pimObjInfo& obj = resMgr->getObjInfo(objId);
+        unsigned rowIdx = obj.getRegions()[i].getRowIdx() + ofst;
+        bool isDCCN = obj.isDualContactRef();
+        core.setBit(rowIdx, colIdx, isDCCN ? !result : result);
+      }
+    }
+  }
+
+  // Update stats
+  std::string cmdName = getName();
+  std::string opName = "";
+  switch (m_op) {
+    case PimAnalogOpEnum::ROW_CLONE: opName = "row_clone"; break;
+    case PimAnalogOpEnum::MAJ3: opName = "maj3"; break;
+    case PimAnalogOpEnum::NOT: opName = "not"; break;
+    case PimAnalogOpEnum::AND2: opName = "and2"; break;
+    case PimAnalogOpEnum::NAND2: opName = "nand2"; break;
+    case PimAnalogOpEnum::OR2: opName = "or2"; break;
+    case PimAnalogOpEnum::NOR2: opName = "nor2"; break;
+    case PimAnalogOpEnum::XOR2: opName = "xor2"; break;
+    case PimAnalogOpEnum::XOR3: opName = "xor3"; break;
+    case PimAnalogOpEnum::XNOR2: opName = "xnor2"; break;
+  }
+  cmdName += "." + opName + "@" + std::to_string(m_srcRows.size()) + "," + std::to_string(m_destRows.size());
+  pimeval::perfEnergy prfEnrgy;
+  pimSim::get()->getStatsMgr()->recordCmd(cmdName, prfEnrgy);
+  return true;
 }
 
 template class pimCmdReduction<int8_t>;

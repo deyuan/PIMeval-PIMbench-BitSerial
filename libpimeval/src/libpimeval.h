@@ -334,5 +334,34 @@ PimStatus pimOpRotateLH(PimObjId objId, PimRowReg src);
 PimStatus pimOpAP(int numSrc, ...);
 PimStatus pimOpAAP(int numSrc, int numDest, ...);
 
+// AAP-based analog bit-serial PIM operators
+// Operators per architecture
+//   - Common: ROW_CLONE
+//   - ComputeDRAM: AND2, OR2
+//   - SIMDRAM: MAJ3
+//   - ReDRAM: NOT, AND2, OR2, XOR2
+//   - FlexiDRAM: MAJ3, XOR3
+//   - DRISA 1T1C: MAJ3
+// Input rows:
+//   - ROW_CLONE, NOT: 1 source rows
+//   - AND2, NAND2, OR2, NOR2, XOR2, XNOR2: 2 source rows
+//   - MAJ3, XOR3: 3 source rows
+//   - Destination rows: Depend on how the architecture modifies row decoder for multi-row activation
+// Notes: Support V1/H1 allocation only
+enum class PimAnalogOpEnum {
+  ROW_CLONE,
+  MAJ3,
+  NOT,
+  AND2,
+  NAND2,
+  OR2,
+  NOR2,
+  XOR2,
+  XOR3,
+  XNOR2,
+};
+
+PimStatus pimGenericAAP(PimAnalogOpEnum op, const std::vector<std::pair<PimObjId, unsigned>>& srcs, const std::vector<std::pair<PimObjId, unsigned>>& dests = {});
+
 #endif
 

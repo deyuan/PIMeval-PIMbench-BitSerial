@@ -733,3 +733,13 @@ pimOpAAP(int numSrc, int numDest, ...)
   return ok ? PIM_OK : PIM_ERROR;
 }
 
+// @brief  Generic AAP operation
+PimStatus
+pimGenericAAP(PimAnalogOpEnum op,
+    const std::vector<std::pair<PimObjId, unsigned>>& srcs,
+    const std::vector<std::pair<PimObjId, unsigned>>& dests)
+{
+  bool ok = pimSim::get()->pimGenericAAP(op, srcs, dests);
+  return ok ? PIM_OK : PIM_ERROR;
+}
+

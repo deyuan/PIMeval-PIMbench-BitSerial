@@ -1159,6 +1159,15 @@ pimSim::pimOpAAP(int numSrc, int numDest, va_list args)
   return m_device->executeCmd(std::move(cmd));
 }
 
+bool
+pimSim::pimGenericAAP(PimAnalogOpEnum op, const std::vector<std::pair<PimObjId, unsigned>>& srcs, const std::vector<std::pair<PimObjId, unsigned>>& dests)
+{
+  pimPerfMon perfMon("pimGenericAAP");
+  if (!isValidDevice()) { return false; }
+  std::unique_ptr<pimCmd> cmd = std::make_unique<pimCmdGenericAAP>(PimCmdEnum::GENERIC_AAP, op, srcs, dests);
+  return m_device->executeCmd(std::move(cmd));
+}
+
 // Explicit template instantiations
 template bool pimSim::pimBroadcast<uint64_t>(PimObjId dest, uint64_t value);
 template bool pimSim::pimBroadcast<int64_t>(PimObjId dest, int64_t value);

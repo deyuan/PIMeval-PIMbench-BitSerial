@@ -108,6 +108,7 @@ enum class PimCmdEnum {
   // SIMDRAM
   ROW_AP,
   ROW_AAP,
+  GENERIC_AAP,
 };
 
 
@@ -669,6 +670,27 @@ public:
   virtual bool execute() override;
 protected:
   void printDebugInfo() const;
+  std::vector<std::pair<PimObjId, unsigned>> m_srcRows;
+  std::vector<std::pair<PimObjId, unsigned>> m_destRows;
+};
+
+//! @class  pimCmdGenericAAP
+//! @brief  Pim CMD: Generic AAP operation with different operators
+class pimCmdGenericAAP : public pimCmd
+{
+public:
+  pimCmdGenericAAP(PimCmdEnum cmdType,
+                  PimAnalogOpEnum op,
+                  const std::vector<std::pair<PimObjId, unsigned>>& srcRows,
+                  const std::vector<std::pair<PimObjId, unsigned>>& destRows = {})
+    : pimCmd(cmdType), m_op(op), m_srcRows(srcRows), m_destRows(destRows)
+  {
+    assert(cmdType == PimCmdEnum::GENERIC_AAP);
+  }
+  virtual ~pimCmdGenericAAP() {}
+  virtual bool execute() override;
+protected:
+  PimAnalogOpEnum m_op;
   std::vector<std::pair<PimObjId, unsigned>> m_srcRows;
   std::vector<std::pair<PimObjId, unsigned>> m_destRows;
 };
