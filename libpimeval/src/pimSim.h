@@ -138,6 +138,7 @@ public:
   bool pimOpWriteSaToRow(PimObjId src, unsigned ofst);
   bool pimOpTRA(PimObjId src1, unsigned ofst1, PimObjId src2, unsigned ofst2, PimObjId src3, unsigned ofst3);
   bool pimOpMove(PimObjId objId, PimRowReg src, PimRowReg dest);
+  bool pimOpSwap(PimObjId objId, PimRowReg src, PimRowReg dest);
   bool pimOpSet(PimObjId objId, PimRowReg dest, bool val);
   bool pimOpNot(PimObjId objId, PimRowReg src, PimRowReg dest);
   bool pimOpAnd(PimObjId objId, PimRowReg src1, PimRowReg src2, PimRowReg dest);

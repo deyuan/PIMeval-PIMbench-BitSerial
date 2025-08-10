@@ -607,6 +607,14 @@ pimOpMove(PimObjId objId, PimRowReg src, PimRowReg dest)
   return ok ? PIM_OK : PIM_ERROR;
 }
 
+//! @brief  BitSIMD-V: Move value between two regs
+PimStatus
+pimOpSwap(PimObjId objId, PimRowReg src, PimRowReg dest)
+{
+  bool ok = pimSim::get()->pimOpSwap(objId, src, dest);
+  return ok ? PIM_OK : PIM_ERROR;
+}
+
 //! @brief  BitSIMD-V: Set value of a reg
 PimStatus
 pimOpSet(PimObjId objId, PimRowReg src, bool val)

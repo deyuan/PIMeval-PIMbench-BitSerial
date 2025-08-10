@@ -1003,6 +1003,15 @@ pimSim::pimOpMove(PimObjId objId, PimRowReg src, PimRowReg dest)
 }
 
 bool
+pimSim::pimOpSwap(PimObjId objId, PimRowReg src, PimRowReg dest)
+{
+  pimPerfMon perfMon("pimOpSwap");
+  if (!isValidDevice()) { return false; }
+  std::unique_ptr<pimCmd> cmd = std::make_unique<pimCmdRRegOp>(PimCmdEnum::RREG_SWAP, objId, dest, src);
+  return m_device->executeCmd(std::move(cmd));
+}
+
+bool
 pimSim::pimOpSet(PimObjId objId, PimRowReg dest, bool val)
 {
   pimPerfMon perfMon("pimOpSet");

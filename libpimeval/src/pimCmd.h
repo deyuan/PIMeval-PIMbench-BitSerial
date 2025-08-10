@@ -92,6 +92,7 @@ enum class PimCmdEnum {
   ROW_R,
   ROW_W,
   RREG_MOV,
+  RREG_SWAP,
   RREG_SET,
   RREG_NOT,
   RREG_AND,
@@ -616,7 +617,7 @@ public:
   pimCmdRRegOp(PimCmdEnum cmdType, PimObjId objId, PimRowReg dest, PimRowReg src1)
     : pimCmd(cmdType), m_objId(objId), m_dest(dest), m_src1(src1)
   {
-    assert(cmdType == PimCmdEnum::RREG_MOV || cmdType == PimCmdEnum::RREG_NOT);
+    assert(cmdType == PimCmdEnum::RREG_MOV || cmdType == PimCmdEnum::RREG_NOT || cmdType == PimCmdEnum::RREG_SWAP);
   }
   pimCmdRRegOp(PimCmdEnum cmdType, PimObjId objId, PimRowReg dest, PimRowReg src1, PimRowReg src2)
     : pimCmd(cmdType), m_objId(objId), m_dest(dest), m_src1(src1), m_src2(src2)

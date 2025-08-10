@@ -87,6 +87,7 @@ pimCmd::getName(PimCmdEnum cmdType, const std::string& suffix)
     { PimCmdEnum::ROW_R, "row_r" },
     { PimCmdEnum::ROW_W, "row_w" },
     { PimCmdEnum::RREG_MOV, "rreg.mov" },
+    { PimCmdEnum::RREG_SWAP, "rreg.swap" },
     { PimCmdEnum::RREG_SET, "rreg.set" },
     { PimCmdEnum::RREG_NOT, "rreg.not" },
     { PimCmdEnum::RREG_AND, "rreg.and" },
@@ -1645,6 +1646,13 @@ pimCmdRRegOp::execute()
       case PimCmdEnum::RREG_MOV:
       {
         m_device->getCore(coreId).getRowReg(m_dest)[j] = m_device->getCore(coreId).getRowReg(m_src1)[j];
+        break;
+      }
+      case PimCmdEnum::RREG_SWAP:
+      {
+        bool val = m_device->getCore(coreId).getRowReg(m_dest)[j];
+        m_device->getCore(coreId).getRowReg(m_dest)[j] = m_device->getCore(coreId).getRowReg(m_src1)[j];
+        m_device->getCore(coreId).getRowReg(m_src1)[j] = m_device->getCore(coreId).getRowReg(m_dest)[j];
         break;
       }
       case PimCmdEnum::RREG_SET:

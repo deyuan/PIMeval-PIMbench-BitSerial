@@ -304,6 +304,7 @@ PimStatus pimOpReadRowToSa(PimObjId src, unsigned ofst);
 PimStatus pimOpWriteSaToRow(PimObjId src, unsigned ofst);
 PimStatus pimOpTRA(PimObjId src1, unsigned ofst1, PimObjId src2, unsigned ofst2, PimObjId src3, unsigned ofst3);
 PimStatus pimOpMove(PimObjId objId, PimRowReg src, PimRowReg dest);
+PimStatus pimOpSwap(PimObjId objId, PimRowReg src, PimRowReg dest);
 PimStatus pimOpSet(PimObjId objId, PimRowReg src, bool val);
 PimStatus pimOpNot(PimObjId objId, PimRowReg src, PimRowReg dest);
 PimStatus pimOpAnd(PimObjId objId, PimRowReg src1, PimRowReg src2, PimRowReg dest);
