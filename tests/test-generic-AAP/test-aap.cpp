@@ -235,7 +235,50 @@ public:
   TestDRISA1T1CNor() : TestPim("DRISA-1T1C-nor") {}
   virtual ~TestDRISA1T1CNor() {}
   virtual void runCore() {
-    
+    // t0 = NOR(SEL, SEL) -> t0 = NOT(SEL)
+    pimOpReadRowToSa(m_objSel, 0);
+    pimOpMove(m_objSel, PIM_RREG_SA, PIM_RREG_R1);
+    pimOpNor(m_objSel, PIM_RREG_SA, PIM_RREG_R1, PIM_RREG_SA);
+    pimOpWriteSaToRow(m_objTmp, 0);
+
+    // t1 = NOR(RS2, RS2) -> t1 = NOT(RS2)
+    pimOpReadRowToSa(m_obj2, 0);
+    pimOpMove(m_obj2, PIM_RREG_SA, PIM_RREG_R1);
+    pimOpNor(m_obj2, PIM_RREG_SA, PIM_RREG_R1, PIM_RREG_SA);
+    pimOpWriteSaToRow(m_objTmp, 1);
+
+    // t2 = NOR(t1, SEL) -> t2 = RS2 & ~SEL
+    pimOpReadRowToSa(m_objTmp, 1);
+    pimOpMove(m_objTmp, PIM_RREG_SA, PIM_RREG_R1);
+    pimOpReadRowToSa(m_objSel, 0);
+    pimOpNor(m_objTmp, PIM_RREG_SA, PIM_RREG_R1, PIM_RREG_SA);
+    pimOpWriteSaToRow(m_objTmp, 2);
+
+    // t3 = NOR(RS1, RS1) -> t3 = NOT(RS1)
+    pimOpReadRowToSa(m_obj1, 0);
+    pimOpMove(m_obj1, PIM_RREG_SA, PIM_RREG_R1);
+    pimOpNor(m_obj1, PIM_RREG_SA, PIM_RREG_R1, PIM_RREG_SA);
+    // pimOpWriteSaToRow(m_objTmp, 3);
+
+    // t4 = NOR(t3, t0) -> t4 = RS1 & SEL
+    // pimOpReadRowToSa(m_objTmp, 3);
+    pimOpMove(m_objTmp, PIM_RREG_SA, PIM_RREG_R1);
+    pimOpReadRowToSa(m_objTmp, 0);
+    pimOpNor(m_objTmp, PIM_RREG_SA, PIM_RREG_R1, PIM_RREG_SA);
+    // pimOpWriteSaToRow(m_objTmp, 4);
+
+    // t1 = NOR(t2, t4) -> t1 = NOT( (RS2&~SEL) OR (RS1&SEL) )
+    // pimOpReadRowToSa(m_objTmp, 4);
+    pimOpMove(m_objTmp, PIM_RREG_SA, PIM_RREG_R1);
+    pimOpReadRowToSa(m_objTmp, 2);
+    pimOpNor(m_objTmp, PIM_RREG_SA, PIM_RREG_R1, PIM_RREG_SA);
+    // pimOpWriteSaToRow(m_objTmp, 1);
+
+    // RD = NOR(t1, t1) -> RD = (RS2&~SEL) OR (RS1&SEL)
+    // pimOpReadRowToSa(m_objTmp, 1);
+    pimOpMove(m_objTmp, PIM_RREG_SA, PIM_RREG_R1);
+    pimOpNor(m_objTmp, PIM_RREG_SA, PIM_RREG_R1, PIM_RREG_SA);
+    pimOpWriteSaToRow(m_objDest, 0);
   }
 };
 
@@ -244,6 +287,31 @@ public:
   TestDRISA1T1CMixed() : TestPim("DRISA-1T1C-mixed") {}
   virtual ~TestDRISA1T1CMixed() {}
   virtual void runCore() {
+    // t0 = NOT(SEL)
+    pimOpReadRowToSa(m_objSel, 0);
+    pimOpNot(m_objSel, PIM_RREG_SA, PIM_RREG_SA);
+    // pimOpWriteSaToRow(m_objTmp, 0);
+
+    // t2 = NAND(RS2, t0) // t2 = ¬(RS2 ∧ ¬SEL)
+    // pimOpReadRowToSa(m_objTmp, 0);
+    pimOpMove(m_obj2, PIM_RREG_SA, PIM_RREG_R1);
+    pimOpReadRowToSa(m_obj2, 0);
+    pimOpNand(m_obj2, PIM_RREG_SA, PIM_RREG_R1, PIM_RREG_SA);
+    pimOpWriteSaToRow(m_objTmp, 2);
+    
+    // t1 = NAND(RS1, SEL) // t1 = ¬(RS1 ∧ SEL)
+    pimOpReadRowToSa(m_obj1, 0);
+    pimOpMove(m_obj1, PIM_RREG_SA, PIM_RREG_R1);
+    pimOpReadRowToSa(m_objSel, 0);
+    pimOpNand(m_obj1, PIM_RREG_SA, PIM_RREG_R1, PIM_RREG_SA);
+    // pimOpWriteSaToRow(m_objTmp, 1);
+
+    // RD = NAND(t1, t2) // RD = (RS1 ∧ SEL) ∨ (RS2 ∧ ¬SEL)
+    // pimOpReadRowToSa(m_objTmp, 1);
+    pimOpMove(m_objTmp, PIM_RREG_SA, PIM_RREG_R1);
+    pimOpReadRowToSa(m_objTmp, 2);
+    pimOpNand(m_objTmp, PIM_RREG_SA, PIM_RREG_R1, PIM_RREG_SA);
+    pimOpWriteSaToRow(m_objDest, 0);
   }
 };
 
