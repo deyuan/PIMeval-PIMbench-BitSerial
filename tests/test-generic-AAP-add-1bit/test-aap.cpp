@@ -133,8 +133,38 @@ public:
   TestSIMDRAM() : TestPim("SIMDRAM") {}
   virtual ~TestSIMDRAM() {}
   virtual void runCore() {
-  
+    PimObjId objDCC = pimAllocAssociated(m_objTmp, PIM_INT32); assert(objDCC != -1);
+    PimObjId objDCCN = pimCreateDualContactRef(objDCC);
 
+    // pimOpAAP(1, 1, cin, 0, DCC, 1);
+    pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objCin, 0}}, {{objDCC, 1}});
+
+    // pimOpAAP(1, 3, B_DCC1, B_T0_T1_T2);
+    pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{objDCC, 1}}, {{m_objTmp, 0}, {m_objTmp, 1}, {m_objTmp, 2}});
+
+    // pimOpAAP(1, 2, src1, 0, B_T2_T3);
+    pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objA, 0}}, {{m_objTmp, 2}, {m_objTmp, 3}});
+
+    // pimOpAAP(1, 1, src2, 0, B_DCC1);
+    pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objB, 0}}, {{objDCC, 1}});
+
+    // pimOpAP(3, B_DCC1_T0_T3);
+    pimGenericAAP(PimAnalogOpEnum::MAJ3, {{objDCC, 1}, {m_objTmp, 0}, {m_objTmp, 3}});
+
+    // pimOpAAP(1, 2, B_DCC1N, B_T0_T3);
+    pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{objDCCN, 1}}, {{m_objTmp, 0}, {m_objTmp, 3}});
+
+    // pimOpAP(3, B_T0_T1_T2);
+    pimGenericAAP(PimAnalogOpEnum::MAJ3, {{m_objTmp, 0}, {m_objTmp, 1}, { m_objTmp, 2}});
+
+    // pimOpAAP(1, 1, src2, 0, B_T1);
+    pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objB, 0}}, {{m_objTmp, 1}});
+
+    // pimOpAAP(3, 1, B_T1_T2_T3, dest, 0);
+    pimGenericAAP(PimAnalogOpEnum::MAJ3, {{m_objTmp, 1}, {m_objTmp, 2}, {m_objTmp, 3}}, {{m_objSum, 0}});
+
+    // pimOpAAP(1, 1, DCC, 1, cout, 0);
+    pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{objDCC, 1}}, {{m_objCout, 0}});
   }
 };
 
