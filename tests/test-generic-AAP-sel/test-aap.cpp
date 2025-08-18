@@ -1,4 +1,4 @@
-// Test: Generic AAP
+// Test: Generic AAP SEL
 // Copyright (c) 2024 University of Virginia
 // This file is licensed under the MIT License.
 // See the LICENSE file in the root of this repository for more details.
@@ -163,15 +163,15 @@ public:
   TestSIMDRAM() : TestPim("SIMDRAM") {}
   virtual ~TestSIMDRAM() {}
   virtual void runCore() {
-    PimObjId objSelNot = pimCreateDualContactRef(m_objSel);
+    PimObjId objTmpNot = pimCreateDualContactRef(m_objTmp);
     // t1 = AAP(RS2)
     pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_obj2, 0}}, {{m_objTmp, 1}});
     // t2 = AAP(ZERO)
     pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objZero, 0}}, {{m_objTmp, 2}});
     // t3 = AAP(~SEL)
-    pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{objSelNot, 0}}, {{m_objTmp, 3}});
+    pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objSel, 0}}, {{m_objTmp, 3}});
     // t4 = AAP(t1, t2, t3, MAJ3) // AND
-    pimGenericAAP(PimAnalogOpEnum::MAJ3, {{m_objTmp, 1}, {m_objTmp, 2}, {m_objTmp, 3}}, {{m_objTmp, 4}});
+    pimGenericAAP(PimAnalogOpEnum::MAJ3, {{m_objTmp, 1}, {m_objTmp, 2}, {objTmpNot, 3}}, {{m_objTmp, 4}});
     // t1 = AAP(SEL)
     pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objSel, 0}}, {{m_objTmp, 1}});
     // t2 = AAP(RS1)
