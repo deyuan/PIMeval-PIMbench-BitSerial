@@ -105,7 +105,7 @@ protected:
   // Device object IDs
   PimObjId m_objA    = -1;
   PimObjId m_objB    = -1;
-  PimObjId m_objRes  = -1; // renamed from m_objSum, 16-bit result
+  PimObjId m_objRes  = -1; 
   PimObjId m_objTmp  = -1;
   PimObjId m_objZero = -1;
   PimObjId m_objOne  = -1;
@@ -116,6 +116,244 @@ public:
   TestComputeDRAM() : TestPim("ComputeDRAM") {}
   virtual ~TestComputeDRAM() {}
   virtual void runCore() {
+
+    PimObjId m_objCin = pimAllocAssociated(m_objA, PIM_UINT8); assert(m_objCin != -1);
+    PimObjId m_objCout = pimAllocAssociated(m_objA, PIM_UINT8); assert(m_objCout != -1);
+    PimObjId objANot = pimAllocAssociated(m_objA, PIM_UINT8); assert(objANot != -1);
+    PimObjId objBNot = pimAllocAssociated(m_objB, PIM_UINT8); assert(objBNot != -1);
+    PimObjId objCinNot = pimAllocAssociated(m_objCin, PIM_UINT8); assert(objCinNot != -1);
+    PimObjId objCoutNot = pimAllocAssociated(m_objCout, PIM_UINT8); assert(objCoutNot != -1);
+    PimObjId objResNot = pimAllocAssociated(m_objRes, PIM_UINT8); assert(objResNot != -1);
+    pimNot(m_objA, objANot);
+    pimNot(m_objB, objBNot);
+
+    // function Multiply(A[0..n-1], B[0..n-1]) -> Res[0..2n-1]:
+    // # initialize result
+    // for k in 0..n-1:
+    for (unsigned k = 0; k < m_numBits; ++k) {
+      //     Res[k] = A[0] AND B[k]      # partial product with LSB of A
+      // t0 = ROW_CLONE(a)
+      pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objA, 0}}, {{m_objTmp, 0}});
+      // t1 = ROW_CLONE(b)
+      pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objB, k}}, {{m_objTmp, 1}});
+      // t0 = AND2(t0, t1)    // ab
+      pimGenericAAP(PimAnalogOpEnum::AND2, {{m_objTmp, 0}, {m_objTmp, 1}});
+      // Res[k] = t0
+      pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objTmp, 0}}, {{m_objRes, k}});
+      //     ~Res[k] = ~A[0] OR ~B[k]      # partial product with LSB of A
+      // t0 = ROW_CLONE(~a)
+      pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{objANot, 0}}, {{m_objTmp, 0}});
+      // t1 = ROW_CLONE(~b)
+      pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{objBNot, k}}, {{m_objTmp, 1}});
+      // t0 = OR2(t0, t1)    // ab
+      pimGenericAAP(PimAnalogOpEnum::OR2, {{m_objTmp, 0}, {m_objTmp, 1}});
+      // ~Res[k] = t0
+      pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objTmp, 0}}, {{objResNot, k}});
+    }
+
+    // Res[n] = 0                       # seed carry column
+    pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objZero, 0}}, {{m_objRes, m_numBits}});
+    // ~Res[n] = 1
+    pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objOne, 0}}, {{objResNot, m_numBits}});
+
+    // # process higher bits of A
+    // for j in 1..n-1:
+    for (unsigned j = 1; j < m_numBits; ++j) {
+      // carry = 0
+      pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objZero, 0}}, {{m_objCin, 0}});
+      // ~carry = 1
+      pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objOne, 0}}, {{objCinNot, 0}});
+      //     for k in 0..n-1:
+      for (unsigned k = 0; k < m_numBits; ++k) {
+        //         p2  = A[j] AND B[k]           # partial product
+        // t0 = A[j]
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objA, j}}, {{m_objTmp, 0}});
+        // t1 = B[k]
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objB, k}}, {{m_objTmp, 1}});
+        // t0 = t0 AND t1
+        pimGenericAAP(PimAnalogOpEnum::AND2, {{m_objTmp, 0}, {m_objTmp, 1}});
+        // t2 = t0 
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objTmp, 0}}, {{m_objTmp, 2}});
+
+        //         ~p2  = ~A[j] OR ~B[k]           # partial product
+        // t0 = ~A[j]
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{objANot, j}}, {{m_objTmp, 0}});
+        // t1 = !B[k]
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{objBNot, k}}, {{m_objTmp, 1}});
+        // t0 = t0 OR t1
+        pimGenericAAP(PimAnalogOpEnum::OR2, {{m_objTmp, 0}, {m_objTmp, 1}});
+        // t3 = t0
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objTmp, 0}}, {{m_objTmp, 3}});
+
+        //         # full-adder
+        //         p : a 
+        //         s_in : Res[j + k] : b           # existing sum in column
+        //         c_in : carry                  # incoming carry
+        //         Res[j + k] : sum              # update column
+        //         sum = p XOR s_in XOR c_in
+        //         carry = MAJ3(p, s_in, c_in)   # carry-out
+
+        // t0 = ROW_CLONE(a)
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objTmp, 2}}, {{m_objTmp, 0}});
+        // t1 = ROW_CLONE(b)
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objRes, j + k}}, {{m_objTmp, 1}});
+        // t0 = AND2(t0, t1)    // ab
+        pimGenericAAP(PimAnalogOpEnum::AND2, {{m_objTmp, 0}, {m_objTmp, 1}});
+        // cout = ROW_CLONE(t0)
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objTmp, 0}}, {{m_objCout, 0}});
+
+        // t0 = ROW_CLONE(a)
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objTmp, 2}}, {{m_objTmp, 0}});
+        // t1 = ROW_CLONE(cin)
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objCin, 0}}, {{m_objTmp, 1}});
+        // t0 = AND2(t0, t1)    // ac
+        pimGenericAAP(PimAnalogOpEnum::AND2, {{m_objTmp, 0}, {m_objTmp, 1}});
+        // t1 = ROW_CLONE(cout)
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objCout, 0}}, {{m_objTmp, 1}});
+        // t0 = OR2(t1, t0)     // ab + ac
+        pimGenericAAP(PimAnalogOpEnum::OR2, {{m_objTmp, 1}, {m_objTmp, 0}});
+        // cout = ROW_CLONE(t0)
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objTmp, 0}}, {{m_objCout, 0}});
+
+        // t0 = ROW_CLONE(b)
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objRes, j + k}}, {{m_objTmp, 0}});
+        // t1 = ROW_CLONE(cin)
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objCin, 0}}, {{m_objTmp, 1}});
+        // t0 = AND2(t0, t1)    // bc
+        pimGenericAAP(PimAnalogOpEnum::AND2, {{m_objTmp, 0}, {m_objTmp, 1}});
+        // t1 = ROW_CLONE(cout)
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objCout, 0}}, {{m_objTmp, 1}});
+        // t0 = OR2(t1, t0)     // ab + ac + bc
+        pimGenericAAP(PimAnalogOpEnum::OR2, {{m_objTmp, 1}, {m_objTmp, 0}});
+        // cout = ROW_CLONE(t0)
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objTmp, 0}}, {{m_objCout, 0}});
+
+        // Sum = a⊕b⊕cin = Σ m(1,2,4,7)
+        // term1: a b' c'
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objTmp, 2}}, {{m_objTmp, 0}});
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{objResNot, j + k}}, {{m_objTmp, 1}});
+        pimGenericAAP(PimAnalogOpEnum::AND2, {{m_objTmp, 0}, {m_objTmp, 1}});
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{objCinNot, 0}}, {{m_objTmp, 1}});
+        pimGenericAAP(PimAnalogOpEnum::AND2, {{m_objTmp, 0}, {m_objTmp, 1}});
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objTmp, 0}}, {{m_objRes, j + k}}); // update Res with a b' c'
+
+        // term2: a' b c'
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objTmp, 3}}, {{m_objTmp, 0}});
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objRes, j + k}}, {{m_objTmp, 1}});
+        pimGenericAAP(PimAnalogOpEnum::AND2, {{m_objTmp, 0}, {m_objTmp, 1}});
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{objCinNot, 0}}, {{m_objTmp, 1}});
+        pimGenericAAP(PimAnalogOpEnum::AND2, {{m_objTmp, 0}, {m_objTmp, 1}});
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objRes, j + k}}, {{m_objTmp, 1}});
+        pimGenericAAP(PimAnalogOpEnum::OR2, {{m_objTmp, 1}, {m_objTmp, 0}});
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objTmp, 0}}, {{m_objRes, j +k}});
+
+        // term3: a' b' c
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objTmp, 3}}, {{m_objTmp, 0}});
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{objResNot, j + k}}, {{m_objTmp, 1}});
+        pimGenericAAP(PimAnalogOpEnum::AND2, {{m_objTmp, 0}, {m_objTmp, 1}});
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objCin, 0}}, {{m_objTmp, 1}});
+        pimGenericAAP(PimAnalogOpEnum::AND2, {{m_objTmp, 0}, {m_objTmp, 1}});
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objRes, j + k}}, {{m_objTmp, 1}});
+        pimGenericAAP(PimAnalogOpEnum::OR2, {{m_objTmp, 1}, {m_objTmp, 0}});
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objTmp, 0}}, {{m_objRes, j + k}});
+
+        // term4: a b c
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objTmp, 2}}, {{m_objTmp, 0}});
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objRes, j + k}}, {{m_objTmp, 1}});
+        pimGenericAAP(PimAnalogOpEnum::AND2, {{m_objTmp, 0}, {m_objTmp, 1}});
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objCin, 0}}, {{m_objTmp, 1}});
+        pimGenericAAP(PimAnalogOpEnum::AND2, {{m_objTmp, 0}, {m_objTmp, 1}});
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objRes, j + k}}, {{m_objTmp, 1}});
+        pimGenericAAP(PimAnalogOpEnum::OR2, {{m_objTmp, 1}, {m_objTmp, 0}});
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objTmp, 0}}, {{m_objRes, j + k}});
+
+
+        // CoutNot = (a'+b')(a'+c')(b'+c')  (De Morgan)
+        // t0 = ROW_CLONE(aNot)
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objTmp, 3}}, {{m_objTmp, 0}});
+        // t1 = ROW_CLONE(bNot)
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{objResNot, j + k}}, {{m_objTmp, 1}});
+        // t0 = OR(t0, t1)    // a'+b'
+        pimGenericAAP(PimAnalogOpEnum::OR2, {{m_objTmp, 0}, {m_objTmp, 1}});
+        // coutNot = ROW_CLONE(t0)
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objTmp, 0}}, {{objCoutNot, 0}});
+
+        // t1 = ROW_CLONE(aNot)
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objTmp, 3}}, {{m_objTmp, 1}});
+        // t0 = ROW_CLONE(cinNot)
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{objCinNot, 0}}, {{m_objTmp, 0}});
+        // t1 = OR(t1, t0)    // a'+c'
+        pimGenericAAP(PimAnalogOpEnum::OR2, {{m_objTmp, 1}, {m_objTmp, 0}});
+        // t0 = ROW_CLONE(coutNot)
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{objCoutNot, 0}}, {{m_objTmp, 0}});
+        // t0 = AND(t0, t1)   // (a'+b')(a'+c')
+        pimGenericAAP(PimAnalogOpEnum::AND2, {{m_objTmp, 0}, {m_objTmp, 1}});
+        // coutNot = ROW_CLONE(t0)
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objTmp, 0}}, {{objCoutNot, 0}});
+
+        // t0 = ROW_CLONE(bNot)
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{objResNot, j + k}}, {{m_objTmp, 0}});
+        // t1 = ROW_CLONE(cinNot)
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{objCinNot, 0}}, {{m_objTmp, 1}});
+        // t0 = OR(t0, t1)    // b'+c'
+        pimGenericAAP(PimAnalogOpEnum::OR2, {{m_objTmp, 0}, {m_objTmp, 1}});
+        // t1 = ROW_CLONE(coutNot)
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{objCoutNot, 0}}, {{m_objTmp, 1}});
+        // t1 = AND(t1, t0)   // (a'+b')(a'+c')(b'+c')
+        pimGenericAAP(PimAnalogOpEnum::AND2, {{m_objTmp, 1}, {m_objTmp, 0}});
+        // coutNot = ROW_CLONE(t1)
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objTmp, 1}}, {{objCoutNot, 0}});
+
+        // SumNot = a' b' c' + a b c' + a b' c + a' b c  (even parity)
+        // term1: a' b' c'
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objTmp, 3}}, {{m_objTmp, 0}});
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{objResNot, j + k}}, {{m_objTmp, 1}});
+        pimGenericAAP(PimAnalogOpEnum::AND2, {{m_objTmp, 0}, {m_objTmp, 1}});
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{objCinNot, 0}}, {{m_objTmp, 1}});
+        pimGenericAAP(PimAnalogOpEnum::AND2, {{m_objTmp, 0}, {m_objTmp, 1}});
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objTmp, 0}}, {{objResNot, j + k}});
+
+        // term2: a b c'
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objTmp, 2}}, {{m_objTmp, 0}});
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objRes, j + k}}, {{m_objTmp, 1}});
+        pimGenericAAP(PimAnalogOpEnum::AND2, {{m_objTmp, 0}, {m_objTmp, 1}});
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{objCinNot, 0}}, {{m_objTmp, 1}});
+        pimGenericAAP(PimAnalogOpEnum::AND2, {{m_objTmp, 0}, {m_objTmp, 1}});
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{objResNot, j + k}}, {{m_objTmp, 1}});
+        pimGenericAAP(PimAnalogOpEnum::OR2, {{m_objTmp, 1}, {m_objTmp, 0}});
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objTmp, 0}}, {{objResNot, j + k}});
+
+        // term3: a b' c
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objTmp, 2}}, {{m_objTmp, 0}});
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{objResNot, j + k}}, {{m_objTmp, 1}});
+        pimGenericAAP(PimAnalogOpEnum::AND2, {{m_objTmp, 0}, {m_objTmp, 1}});
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objCin, 0}}, {{m_objTmp, 1}});
+        pimGenericAAP(PimAnalogOpEnum::AND2, {{m_objTmp, 0}, {m_objTmp, 1}});
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{objResNot, j + k}}, {{m_objTmp, 1}});
+        pimGenericAAP(PimAnalogOpEnum::OR2, {{m_objTmp, 1}, {m_objTmp, 0}});
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objTmp, 0}}, {{objResNot , j + k}});
+
+        // term4: a' b c
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objTmp, 3}}, {{m_objTmp, 0}});
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objRes, j + k}}, {{m_objTmp, 1}});
+        pimGenericAAP(PimAnalogOpEnum::AND2, {{m_objTmp, 0}, {m_objTmp, 1}});
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objCin, 0}}, {{m_objTmp, 1}});
+        pimGenericAAP(PimAnalogOpEnum::AND2, {{m_objTmp, 0}, {m_objTmp, 1}});
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{objResNot, j + k}}, {{m_objTmp, 1}});
+        pimGenericAAP(PimAnalogOpEnum::OR2, {{m_objTmp, 1}, {m_objTmp, 0}});
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objTmp, 0}}, {{objResNot, j + k}});
+
+        // cin = cout 
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objCout, 0}}, {{m_objCin, 0}});
+        // ~cin = ~cout 
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{objCoutNot, 0}}, {{objCinNot, 0}});
+      }
+      //     Res[j + n] = carry                # propagate final carry
+      pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objCout, 0}}, {{m_objRes, j + m_numBits}});
+      //     ~Res[j + n] = ~carry
+      pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{objCoutNot, 0}}, {{objResNot, j + m_numBits}});
+    }
+
   }
 private:
 };
