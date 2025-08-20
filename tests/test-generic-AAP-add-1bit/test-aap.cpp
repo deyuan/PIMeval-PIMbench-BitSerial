@@ -170,6 +170,12 @@ public:
     // cout = ROW_CLONE(t0)
     pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objTmp, 0}}, {{m_objCout, 0}});
 
+    // wire P   = (~A & B) | (A & ~B);  // A xor B using NOT/AND/OR
+    // wire nP  = ~P;
+
+    // assign Sum  = (P & ~Cin) | (~P & Cin);
+    // assign Cout = (A & B) | (A & Cin) | (B & Cin);
+
     // Sum = a⊕b⊕cin = Σ m(1,2,4,7)
     // term1: a b' c'
     pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objA, 0}}, {{m_objTmp, 0}});
@@ -334,48 +340,70 @@ public:
   TestReDRAM() : TestPim("ReDRAM") {}
   virtual ~TestReDRAM() {}
   virtual void runCore() {
-    // SUM path
-    // t0 = ROW_CLONE(a)
-    pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objA, 0}}, {{m_objTmp, 0}});
-    // t1 = ROW_CLONE(b)
-    pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objB, 0}}, {{m_objTmp, 1}});
-    // t2 = ROW_CLONE(cin)
-    pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objCin, 0}}, {{m_objTmp, 2}});
-    // t0 = XOR2(t0, t1)    // a ⊕ b -> stored in tmp[0]
+    // assign xab  = A ^ B;          // XOR
+    // t0, t3 = ROW_CLONE(A)
+    pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objA, 0}}, {{m_objTmp, 0}, {m_objTmp, 3}});
+    // t1, t4 = ROW_CLONE(B)
+    pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objB, 0}}, {{m_objTmp, 1}, {m_objTmp, 4}});
+    // t2, t5 = ROW_CLONE(cin) (could be ignored in real-world scenario)
+    pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objCin, 0}}, {{m_objTmp, 2}, {m_objTmp, 5}});
+    // t0, t1 = XOR2(t0, t1)   
     pimGenericAAP(PimAnalogOpEnum::XOR2, {{m_objTmp, 0}, {m_objTmp, 1}});
-    // t0 = XOR2(t0, t2)    // (a ⊕ b) ⊕ cin
-    pimGenericAAP(PimAnalogOpEnum::XOR2, {{m_objTmp, 0}, {m_objTmp, 2}});
+
+    // assign Sum  = xab ^ Cin;      // XOR
+    // t0, t2 = XOR2(t0, t2)
+    pimGenericAAP(PimAnalogOpEnum::XOR2, {{m_objTmp, 0}, {m_objTmp, 2}}); // t0 now holds the sum
     // sum = ROW_CLONE(t0)
     pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objTmp, 0}}, {{m_objSum, 0}});
 
-    // CARRY path: cout = ab + a·cin + b·cin
-    // t3 = ROW_CLONE(a)
-    pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objA, 0}}, {{m_objTmp, 3}});
-    // t4 = ROW_CLONE(b)
-    pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objB, 0}}, {{m_objTmp, 4}});
-    // t5 = ROW_CLONE(cin)
-    pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objCin, 0}}, {{m_objTmp, 5}});
-    // t3 = AND2(t3, t4)    // ab stored in tmp[3]
-    pimGenericAAP(PimAnalogOpEnum::AND2, {{m_objTmp, 3}, {m_objTmp, 4}});
+    // assign Cout = (A & B) | (Cin & xab);  // 2 AND + OR
+    // t1, t5 = AND(t1, t5)
+    pimGenericAAP(PimAnalogOpEnum::AND2, {{m_objTmp, 1}, {m_objTmp, 5}});
+    // t3, t4 = AND(t3, t4)
+    pimGenericAAP(PimAnalogOpEnum::AND2, {{m_objTmp, 3}, {m_objTmp, 4}}); // t3 now holds ab
+    // t1, t2, t3, t5 = OR(t1, t3)
+    pimGenericAAP(PimAnalogOpEnum::OR2, {{m_objTmp, 1}, {m_objTmp, 3}} , {{m_objTmp, 2}, {m_objTmp, 5}});
+    // cout = ROW_CLONE(t2) (could be ignored in real-world scenario)
+    pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objTmp, 2}}, {{m_objCout, 0}});
 
-    // t6 = ROW_CLONE(a); t7 = ROW_CLONE(cin)
-    pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objA, 0}}, {{m_objTmp, 6}});
-    pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objCin, 0}}, {{m_objTmp, 7}});
-    // t6 = AND2(t6, t7)    // a·cin in tmp[6]
-    pimGenericAAP(PimAnalogOpEnum::AND2, {{m_objTmp, 6}, {m_objTmp, 7}});
-    // t3 = OR2(t3, t6)     // ab + a·cin in tmp[3]
-    pimGenericAAP(PimAnalogOpEnum::OR2, {{m_objTmp, 3}, {m_objTmp, 6}});
 
-    // t6 = ROW_CLONE(b); t7 = ROW_CLONE(cin)
-    pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objB, 0}}, {{m_objTmp, 6}});
-    pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objCin, 0}}, {{m_objTmp, 7}});
-    // t6 = AND2(t6, t7)    // b·cin in tmp[6]
-    pimGenericAAP(PimAnalogOpEnum::AND2, {{m_objTmp, 6}, {m_objTmp, 7}});
-    // t3 = OR2(t3, t6)     // ab + a·cin + b·cin in tmp[3]
-    pimGenericAAP(PimAnalogOpEnum::OR2, {{m_objTmp, 3}, {m_objTmp, 6}});
 
-    // cout = ROW_CLONE(t3)
-    pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objTmp, 3}}, {{m_objCout, 0}});
+    // // SUM path
+    // // t0, t3 = ROW_CLONE(a)
+    // pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objA, 0}}, {{m_objTmp, 0}, {m_objTmp, 3}});
+    // // t1, t4 = ROW_CLONE(b)
+    // pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objB, 0}}, {{m_objTmp, 1}, {m_objTmp, 4}});
+    // // t2, t5 = ROW_CLONE(cin)
+    // pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objCin, 0}}, {{m_objTmp, 2}, {m_objTmp, 5}});
+    // // t0 = XOR2(t0, t1)    // a ⊕ b -> stored in tmp[0]
+    // pimGenericAAP(PimAnalogOpEnum::XOR2, {{m_objTmp, 0}, {m_objTmp, 1}});
+    // // t0 = XOR2(t0, t2)    // (a ⊕ b) ⊕ cin
+    // pimGenericAAP(PimAnalogOpEnum::XOR2, {{m_objTmp, 0}, {m_objTmp, 2}});
+    // // sum = ROW_CLONE(t0)
+    // pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objTmp, 0}}, {{m_objSum, 0}});
+
+    // // CARRY path: cout = ab + a·cin + b·cin
+    // // t3 = AND2(t3, t4)    // ab stored in tmp[3]
+    // pimGenericAAP(PimAnalogOpEnum::AND2, {{m_objTmp, 3}, {m_objTmp, 4}});
+
+    // // t6 = ROW_CLONE(a); t7 = ROW_CLONE(cin)
+    // pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objA, 0}}, {{m_objTmp, 6}});
+    // pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objCin, 0}}, {{m_objTmp, 7}});
+    // // t6 = AND2(t6, t7)    // a·cin in tmp[6]
+    // pimGenericAAP(PimAnalogOpEnum::AND2, {{m_objTmp, 6}, {m_objTmp, 7}});
+    // // t3 = OR2(t3, t6)     // ab + a·cin in tmp[3]
+    // pimGenericAAP(PimAnalogOpEnum::OR2, {{m_objTmp, 3}, {m_objTmp, 6}});
+
+    // // t6 = ROW_CLONE(b); t7 = ROW_CLONE(cin)
+    // pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objB, 0}}, {{m_objTmp, 6}});
+    // pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objCin, 0}}, {{m_objTmp, 7}});
+    // // t6 = AND2(t6, t7)    // b·cin in tmp[6]
+    // pimGenericAAP(PimAnalogOpEnum::AND2, {{m_objTmp, 6}, {m_objTmp, 7}});
+    // // t3 = OR2(t3, t6)     // ab + a·cin + b·cin in tmp[3]
+    // pimGenericAAP(PimAnalogOpEnum::OR2, {{m_objTmp, 3}, {m_objTmp, 6}});
+
+    // // cout = ROW_CLONE(t3)
+    // pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objTmp, 3}}, {{m_objCout, 0}});
 
   }
 };
@@ -385,29 +413,26 @@ public:
   TestFlexiDRAM() : TestPim("FlexiDRAM") {}
   virtual ~TestFlexiDRAM() {}
   virtual void runCore() {
-    // t0 = ROW_CLONE(a)
-    pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objA, 0}}, {{m_objTmp, 0}});
-    // t1 = ROW_CLONE(b)
-    pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objB, 0}}, {{m_objTmp, 1}});
-    // t2 = ROW_CLONE(cin)
-    pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objCin, 0}}, {{m_objTmp, 2}});
-    // t3 = MAJ3(t0, t1, t2) // t3 ← cout (t0,t1,t2 get clobbered)
-    pimGenericAAP(PimAnalogOpEnum::MAJ3, {{m_objTmp, 0}, {m_objTmp, 1}, {m_objTmp, 2}}, {{m_objTmp, 3}});
 
-    // Recreate t0,t1,t2 because MAJ3 clobbered them
-    // t0 = ROW_CLONE(a)
-    pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objA, 0}}, {{m_objTmp, 0}});
-    // t1 = ROW_CLONE(b)
-    pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objB, 0}}, {{m_objTmp, 1}});
-    // t2 = ROW_CLONE(cin)
-    pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objCin, 0}}, {{m_objTmp, 2}});
-    // t4 = XOR3(t0, t1, t2) // t4 ← sum (t0,t1,t2 get clobbered)
-    pimGenericAAP(PimAnalogOpEnum::XOR3, {{m_objTmp, 0}, {m_objTmp, 1}, {m_objTmp, 2}}, {{m_objTmp, 4}});
+    // t0, t1 = ROW_CLONE(a)
+    pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objA, 0}}, {{m_objTmp, 0}, {m_objTmp, 1}});
+    // t2 = ROW_CLONE(b)
+    pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objB, 0}}, {{m_objTmp, 2}});
+    // t3, t4 = ROW_CLONE(cin)
+    pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objCin, 0}}, {{m_objTmp, 3}, {m_objTmp, 4}});
 
-    // cout = ROW_CLONE(t3)
-    pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objTmp, 3}}, {{m_objCout, 0}});
-    // sum = ROW_CLONE(t4)
-    pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objTmp, 4}}, {{m_objSum, 0}});
+    // t0, t2, t3 = XOR3(t0, t2, t3) //
+    pimGenericAAP(PimAnalogOpEnum::XOR3, {{m_objTmp, 0}, {m_objTmp, 2}, {m_objTmp, 3}});
+    // sum = ROW_CLONE(t3)
+    pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objTmp, 3}}, {{m_objSum, 0}});
+
+    // t3 = ROW_CLONE(b)
+    pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objB, 0}}, {{m_objTmp, 3}});
+    // t1, t3, t4 = MAJ3(t1, t3, t4)
+    pimGenericAAP(PimAnalogOpEnum::MAJ3, {{m_objTmp, 1}, {m_objTmp, 3}, {m_objTmp, 4}});
+    // cout = ROW_CLONE(t1)
+    pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objTmp, 1}}, {{m_objCout, 0}});
+
   }
 };
 
@@ -417,113 +442,45 @@ public:
   TestDRISA1T1CNor() : TestPim("DRISA-1T1C-nor") {}
   virtual ~TestDRISA1T1CNor() {}
   virtual void runCore() {
-    // --- Inverters and base NORs for a,b ---
-    pimOpReadRowToSa(m_objA, 0);
+
+    PimObjId objDCC = pimAllocAssociated(m_objTmp, PIM_INT32); assert(objDCC != -1);
+    PimObjId objDCCN = pimAllocAssociated(m_objTmp, PIM_INT32); assert(objDCC != -1);
+    // pimOpAAP(1, 1, cin, 0, DCC, 1); #RowRead = 2
+    pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objCin, 0}}, {{objDCC, 1}});
+
+    // pimOpAAP(1, 3, B_DCC1, B_T0_T1_T2); #RowRead = 4
+    pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{objDCC, 1}}, {{m_objTmp, 0}, {m_objTmp, 1}, {m_objTmp, 2}});
+
+    // pimOpAAP(1, 2, src1, 0, B_T2_T3); #RowRead = 3
+    pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objA, 0}}, {{m_objTmp, 2}, {m_objTmp, 3}});
+
+    // pimOpAAP(1, 1, src2, 0, B_DCC1); #RowRead = 2
+    pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objB, 0}}, {{objDCC, 1}});
+
+    // pimOpAP(3, B_DCC1_T0_T3); #RowRead = 1
+    pimGenericAAP(PimAnalogOpEnum::MAJ3, {{objDCC, 1}, {m_objTmp, 0}, {m_objTmp, 3}});
+
+    // objDCCN[1] = ~objDCC[1] # RowRead = 2
+    pimOpReadRowToSa(objDCC, 1);
     pimOpMove(m_objA, PIM_RREG_SA, PIM_RREG_R1);
     pimOpNor(m_objA, PIM_RREG_SA, PIM_RREG_R1, PIM_RREG_SA);
-    pimOpWriteSaToRow(m_objTmp, 0);   // t0: ~a
+    pimOpWriteSaToRow(objDCCN, 1);  
 
-    pimOpReadRowToSa(m_objB, 0);
-    pimOpMove(m_objB, PIM_RREG_SA, PIM_RREG_R1);
-    pimOpNor(m_objB, PIM_RREG_SA, PIM_RREG_R1, PIM_RREG_SA);
-    pimOpWriteSaToRow(m_objTmp, 1);   // t1: ~b
 
-    pimOpReadRowToSa(m_objA, 0);
-    pimOpMove(m_objA, PIM_RREG_SA, PIM_RREG_R1);
-    pimOpReadRowToSa(m_objB, 0);
-    pimOpNor(m_objA, PIM_RREG_SA, PIM_RREG_R1, PIM_RREG_SA);
-    pimOpWriteSaToRow(m_objTmp, 2); // t2: a NOR b
+    // pimOpAAP(1, 2, B_DCC1N, B_T0_T3); #RowRead = 3
+    pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{objDCCN, 1}}, {{m_objTmp, 0}, {m_objTmp, 3}});
 
-    // compute (~a NOR ~b) using t0=~a (idx0), SA=~b (idx1)
-    pimOpReadRowToSa(m_objTmp, 0);
-    pimOpMove(m_objTmp, PIM_RREG_SA, PIM_RREG_R1);
-    pimOpReadRowToSa(m_objTmp, 1);
-    pimOpNor(m_objTmp, PIM_RREG_SA, PIM_RREG_R1, PIM_RREG_SA);
-    pimOpWriteSaToRow(m_objTmp, 3);                              // t3: ~a NOR ~b = a & b
+    // pimOpAP(3, B_T0_T1_T2); #RowRead = 1
+    pimGenericAAP(PimAnalogOpEnum::MAJ3, {{m_objTmp, 0}, {m_objTmp, 1}, { m_objTmp, 2}});
 
-    // To realize the above line with rows: load ~a then ~b (explicitly)
-    pimOpReadRowToSa(m_objTmp, 0);
-    pimOpMove(m_objTmp, PIM_RREG_SA, PIM_RREG_R1);
-    pimOpReadRowToSa(m_objTmp, 1);
-    pimOpNor(m_objTmp, PIM_RREG_SA, PIM_RREG_R1, PIM_RREG_SA);
-    pimOpWriteSaToRow(m_objTmp, 3);                                                // overwrite t3 correctly
+    // pimOpAAP(1, 1, src2, 0, B_T1); #RowRead = 2
+    pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objB, 0}}, {{m_objTmp, 1}});
 
-    // XOR_ab = (a NOR b) NOR (~a NOR ~b)
-    pimOpReadRowToSa(m_objTmp, 2);
-    pimOpMove(m_objTmp, PIM_RREG_SA, PIM_RREG_R1);
-    pimOpReadRowToSa(m_objTmp, 3);
-    pimOpNor(m_objTmp, PIM_RREG_SA, PIM_RREG_R1, PIM_RREG_SA);
-    pimOpWriteSaToRow(m_objTmp, 4);                                                // t4: a⊕b
+    // pimOpAAP(3, 1, B_T1_T2_T3, dest, 0); #RowRead = 3
+    pimGenericAAP(PimAnalogOpEnum::MAJ3, {{m_objTmp, 1}, {m_objTmp, 2}, {m_objTmp, 3}}, {{m_objSum, 0}});
 
-    // --- Inverters and base NORs for (a⊕b) and cin ---
-    pimOpReadRowToSa(m_objTmp, 4);
-    pimOpMove(m_objTmp, PIM_RREG_SA, PIM_RREG_R1);
-    pimOpNor(m_objTmp, PIM_RREG_SA, PIM_RREG_R1, PIM_RREG_SA);
-    pimOpWriteSaToRow(m_objTmp, 5); // t5: ~(a⊕b)
-
-    pimOpReadRowToSa(m_objCin, 0);
-    pimOpMove(m_objCin, PIM_RREG_SA, PIM_RREG_R1);
-    pimOpNor(m_objCin, PIM_RREG_SA, PIM_RREG_R1, PIM_RREG_SA);
-    pimOpWriteSaToRow(m_objTmp, 6); // t6: ~cin
-
-    pimOpReadRowToSa(m_objTmp, 4);
-    pimOpMove(m_objTmp, PIM_RREG_SA, PIM_RREG_R1);
-    pimOpReadRowToSa(m_objCin, 0);
-    pimOpNor(m_objTmp, PIM_RREG_SA, PIM_RREG_R1, PIM_RREG_SA);
-    pimOpWriteSaToRow(m_objTmp, 7);                                                // t7: (a⊕b) NOR cin
-
-    pimOpReadRowToSa(m_objTmp, 5);
-    pimOpMove(m_objTmp, PIM_RREG_SA, PIM_RREG_R1);
-    pimOpReadRowToSa(m_objTmp, 6);
-    pimOpNor(m_objTmp, PIM_RREG_SA, PIM_RREG_R1, PIM_RREG_SA);
-    pimOpWriteSaToRow(m_objTmp, 8);                                                // t8: (a⊕b)&cin
-
-    // sum = t7 NOR t8  (i.e., (a⊕b)⊕cin)
-    pimOpReadRowToSa(m_objTmp, 7);
-    pimOpMove(m_objTmp, PIM_RREG_SA, PIM_RREG_R1);
-    pimOpReadRowToSa(m_objTmp, 8);
-    pimOpNor(m_objTmp, PIM_RREG_SA, PIM_RREG_R1, PIM_RREG_SA);
-    pimOpWriteSaToRow(m_objSum, 0);                   // SUM
-
-    // --- cout = ab | ac | bc ---
-    /* we already have: t3=ab, t6=~cin, t0=~a, t1=~b */
-    // ac = NOR(~a, ~cin)
-    pimOpReadRowToSa(m_objTmp, 0);
-    pimOpMove(m_objTmp, PIM_RREG_SA, PIM_RREG_R1);
-    pimOpReadRowToSa(m_objTmp, 6);
-    pimOpNor(m_objTmp, PIM_RREG_SA, PIM_RREG_R1, PIM_RREG_SA);
-    pimOpWriteSaToRow(m_objTmp, 9);                                                // t9: ac
-
-    // bc = NOR(~b, ~cin)
-    pimOpReadRowToSa(m_objTmp, 1);
-    pimOpMove(m_objTmp, PIM_RREG_SA, PIM_RREG_R1);
-    pimOpReadRowToSa(m_objTmp, 6);
-    pimOpNor(m_objTmp, PIM_RREG_SA, PIM_RREG_R1, PIM_RREG_SA);
-    pimOpWriteSaToRow(m_objTmp, 10);                                               // t10: bc
-
-    // or1 = ab | ac  => or1 = NOR( NOR(ab,ac), NOR(ab,ac) )
-    pimOpReadRowToSa(m_objTmp, 3);
-    pimOpMove(m_objTmp, PIM_RREG_SA, PIM_RREG_R1);
-    pimOpReadRowToSa(m_objTmp, 9);
-    pimOpNor(m_objTmp, PIM_RREG_SA, PIM_RREG_R1, PIM_RREG_SA);
-    pimOpWriteSaToRow(m_objTmp, 11);                                               // t11: ~(ab|ac)
-
-    pimOpReadRowToSa(m_objTmp, 11);
-    pimOpMove(m_objTmp, PIM_RREG_SA, PIM_RREG_R1);
-    pimOpNor(m_objTmp, PIM_RREG_SA, PIM_RREG_R1, PIM_RREG_SA);
-    pimOpWriteSaToRow(m_objTmp, 12); // t12: or1
-
-    // cout = or1 | bc  => same pattern
-    pimOpReadRowToSa(m_objTmp, 12);
-    pimOpMove(m_objTmp, PIM_RREG_SA, PIM_RREG_R1);
-    pimOpReadRowToSa(m_objTmp, 10);
-    pimOpNor(m_objTmp, PIM_RREG_SA, PIM_RREG_R1, PIM_RREG_SA);
-    pimOpWriteSaToRow(m_objTmp, 13);                                               // t13: ~(or1|bc)
-
-    pimOpReadRowToSa(m_objTmp, 13);
-    pimOpMove(m_objTmp, PIM_RREG_SA, PIM_RREG_R1);
-    pimOpNor(m_objTmp, PIM_RREG_SA, PIM_RREG_R1, PIM_RREG_SA);
-    pimOpWriteSaToRow(m_objCout, 0); // COUT
+    // pimOpAAP(1, 1, DCC, 1, cout, 0); #RowRead = 2
+    pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{objDCC, 1}}, {{m_objCout, 0}});
   }
 };
 
@@ -532,40 +489,78 @@ public:
   TestDRISA1T1CMixed() : TestPim("DRISA-1T1C-mixed") {}
   virtual ~TestDRISA1T1CMixed() {}
   virtual void runCore() {
-    // s1 = a XOR b  → tmp[0]
+    // s1=XNOR(A,B)
+    // Sum=XNOR(s1,Cin)
+    // t1=NOR(A,B)
+    // s1‾=NOT(s1) this instruction needs 1 row access.
+    // t2 = NOR(Cin,s1‾) this instuction needs 1 row access.
+    // Cout=NOR(t1, t2) this instruction needs 2 row accesses.
+
+    // t0 = XNOR(A, B)           // intermediate for Sum
     pimOpReadRowToSa(m_objA, 0);
     pimOpMove(m_objA, PIM_RREG_SA, PIM_RREG_R1);           // t0 = a
     pimOpReadRowToSa(m_objB, 0);                           // sa = b
     pimOpXnor(m_objB, PIM_RREG_SA, PIM_RREG_R1, PIM_RREG_SA); // sa = XNOR(b,a)
-    pimOpNot(m_objB, PIM_RREG_SA, PIM_RREG_SA);            // sa = a XOR b
-    pimOpWriteSaToRow(m_objTmp, 0);                        // tmp[0] = s1
+    pimOpWriteSaToRow(m_objTmp, 0);                        // tmp[0] = sa
 
-    // ab = a AND b  → tmp[1]
-    pimOpReadRowToSa(m_objA, 0);  pimOpMove(m_objA, PIM_RREG_SA, PIM_RREG_R1); // t0 = a
-    pimOpReadRowToSa(m_objB, 0);  pimOpNand(m_objB, PIM_RREG_SA, PIM_RREG_R1, PIM_RREG_SA); // sa = ~(a&b)
-    pimOpNot(m_objB, PIM_RREG_SA, PIM_RREG_SA);            // sa = a&b
-    pimOpWriteSaToRow(m_objTmp, 1);                        // tmp[1] = ab
+    // Sum = XNOR(s1, Cin)       // correct full-adder Sum
+    pimOpMove(m_objA, PIM_RREG_SA, PIM_RREG_R1);           // t0 = a
+    pimOpReadRowToSa(m_objCin, 0);
+    pimOpXnor(m_objB, PIM_RREG_SA, PIM_RREG_R1, PIM_RREG_SA); // sa = XNOR(sa,cin)
+    pimOpWriteSaToRow(m_objSum, 0);                        // sum = sa
 
-    // c1 = cin AND s1  → tmp[2]
-    pimOpReadRowToSa(m_objCin, 0); pimOpMove(m_objCin, PIM_RREG_SA, PIM_RREG_R1); // t0 = cin
-    pimOpReadRowToSa(m_objTmp, 0); pimOpNand(m_objTmp, PIM_RREG_SA, PIM_RREG_R1, PIM_RREG_SA); // sa = ~(cin&s1)
-    pimOpNot(m_objTmp, PIM_RREG_SA, PIM_RREG_SA);          // sa = cin&s1
-    pimOpWriteSaToRow(m_objTmp, 2);                        // tmp[2] = c1
+    // t1 = NOR(A, B)            // part of Cout logic
+    pimOpReadRowToSa(m_objA, 0);
+    pimOpMove(m_objA, PIM_RREG_SA, PIM_RREG_R1);           // t0 = a
+    pimOpReadRowToSa(m_objB, 0);                           // sa = b
+    pimOpNor(m_objB, PIM_RREG_SA, PIM_RREG_R1, PIM_RREG_SA); // sa = NOR(b,a)
+    pimOpWriteSaToRow(m_objTmp, 1);                        // tmp[1] = sa
 
-    // cout = ab OR c1 = NAND(~ab, ~c1)
-    pimOpReadRowToSa(m_objTmp, 1); pimOpNot(m_objTmp, PIM_RREG_SA, PIM_RREG_SA); // sa = ~ab
-    pimOpMove(m_objTmp, PIM_RREG_SA, PIM_RREG_R1);         // t0 = ~ab
-    pimOpReadRowToSa(m_objTmp, 2); pimOpNot(m_objTmp, PIM_RREG_SA, PIM_RREG_SA); // sa = ~c1
-    pimOpNand(m_objTmp, PIM_RREG_SA, PIM_RREG_R1, PIM_RREG_SA);                   // sa = (~c1 NAND ~ab) = ab|c1
+    // t2 = NOR(Cin, t0)         // second part of Cout logic
+    pimOpReadRowToSa(m_objCin, 0);
+    pimOpMove(m_objA, PIM_RREG_SA, PIM_RREG_R1);           // t0 = a
+    pimOpReadRowToSa(m_objTmp, 0);                           // sa = tmp[0]
+    pimOpNor(m_objB, PIM_RREG_SA, PIM_RREG_R1, PIM_RREG_R1); // r1 = NOR(Cin,s1)
+
+    // Cout = NOR(t1, t2)        // final Cout
+    pimOpReadRowToSa(m_objTmp, 1);
+    pimOpNor(m_objTmp, PIM_RREG_SA, PIM_RREG_R1, PIM_RREG_SA); // sa = NOR(t1,sa)
     pimOpWriteSaToRow(m_objCout, 0);                       // cout
 
-    // sum = s1 XOR cin
-    pimOpReadRowToSa(m_objTmp, 0);                         // sa = s1
-    pimOpMove(m_objTmp, PIM_RREG_SA, PIM_RREG_R1);         // t0 = s1
-    pimOpReadRowToSa(m_objCin, 0);                         // sa = cin
-    pimOpXnor(m_objCin, PIM_RREG_SA, PIM_RREG_R1, PIM_RREG_SA); // sa = XNOR(cin,s1)
-    pimOpNot(m_objCin, PIM_RREG_SA, PIM_RREG_SA);          // sa = XOR(cin,s1)
-    pimOpWriteSaToRow(m_objSum, 0);                        // sum
+    // // s1 = a XOR b  → tmp[0]
+    // pimOpReadRowToSa(m_objA, 0);
+    // pimOpMove(m_objA, PIM_RREG_SA, PIM_RREG_R1);           // t0 = a
+    // pimOpReadRowToSa(m_objB, 0);                           // sa = b
+    // pimOpXnor(m_objB, PIM_RREG_SA, PIM_RREG_R1, PIM_RREG_SA); // sa = XNOR(b,a)
+    // pimOpNot(m_objB, PIM_RREG_SA, PIM_RREG_SA);            // sa = a XOR b
+    // pimOpWriteSaToRow(m_objTmp, 0);                        // tmp[0] = s1
+
+    // // ab = a AND b  → tmp[1]
+    // pimOpReadRowToSa(m_objA, 0);  pimOpMove(m_objA, PIM_RREG_SA, PIM_RREG_R1); // t0 = a
+    // pimOpReadRowToSa(m_objB, 0);  pimOpNand(m_objB, PIM_RREG_SA, PIM_RREG_R1, PIM_RREG_SA); // sa = ~(a&b)
+    // pimOpNot(m_objB, PIM_RREG_SA, PIM_RREG_SA);            // sa = a&b
+    // pimOpWriteSaToRow(m_objTmp, 1);                        // tmp[1] = ab
+
+    // // c1 = cin AND s1  → tmp[2]
+    // pimOpReadRowToSa(m_objCin, 0); pimOpMove(m_objCin, PIM_RREG_SA, PIM_RREG_R1); // t0 = cin
+    // pimOpReadRowToSa(m_objTmp, 0); pimOpNand(m_objTmp, PIM_RREG_SA, PIM_RREG_R1, PIM_RREG_SA); // sa = ~(cin&s1)
+    // pimOpNot(m_objTmp, PIM_RREG_SA, PIM_RREG_SA);          // sa = cin&s1
+    // pimOpWriteSaToRow(m_objTmp, 2);                        // tmp[2] = c1
+
+    // // cout = ab OR c1 = NAND(~ab, ~c1)
+    // pimOpReadRowToSa(m_objTmp, 1); pimOpNot(m_objTmp, PIM_RREG_SA, PIM_RREG_SA); // sa = ~ab
+    // pimOpMove(m_objTmp, PIM_RREG_SA, PIM_RREG_R1);         // t0 = ~ab
+    // pimOpReadRowToSa(m_objTmp, 2); pimOpNot(m_objTmp, PIM_RREG_SA, PIM_RREG_SA); // sa = ~c1
+    // pimOpNand(m_objTmp, PIM_RREG_SA, PIM_RREG_R1, PIM_RREG_SA);                   // sa = (~c1 NAND ~ab) = ab|c1
+    // pimOpWriteSaToRow(m_objCout, 0);                       // cout
+
+    // // sum = s1 XOR cin
+    // pimOpReadRowToSa(m_objTmp, 0);                         // sa = s1
+    // pimOpMove(m_objTmp, PIM_RREG_SA, PIM_RREG_R1);         // t0 = s1
+    // pimOpReadRowToSa(m_objCin, 0);                         // sa = cin
+    // pimOpXnor(m_objCin, PIM_RREG_SA, PIM_RREG_R1, PIM_RREG_SA); // sa = XNOR(cin,s1)
+    // pimOpNot(m_objCin, PIM_RREG_SA, PIM_RREG_SA);          // sa = XOR(cin,s1)
+    // pimOpWriteSaToRow(m_objSum, 0);                        // sum
 
   }
 };
