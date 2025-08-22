@@ -454,26 +454,57 @@ public:
   TestReDRAM() : TestPim("ReDRAM") {}
   virtual ~TestReDRAM() {}
   virtual void runCore() {
+    // function Multiply(A[0..n-1], B[0..n-1]) -> Res[0..2n-1]:
     // # initialize result
     // for k in 0..n-1:
-    //     Res[k] = A[0] AND B[k]      # partial product with LSB of A
+    for (unsigned k = 0; k < m_numBits; ++k) {
+      //     Res[k] = A[0] AND B[k]      # partial product with LSB of A
+      // t0 = ROW_CLONE(a)
+      pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objA, 0}}, {{m_objTmp, 0}});
+      // t1 = ROW_CLONE(b)
+      pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objB, k}}, {{m_objTmp, 1}});
+      // t0 = AND2(t0, t1)    // ab
+      pimGenericAAP(PimAnalogOpEnum::AND2, {{m_objTmp, 0}, {m_objTmp, 1}});
+      // Res[k] = t0
+      pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objTmp, 0}}, {{m_objRes, k}});
+    }
+
     // Res[n] = 0                       # seed carry column
+    pimGenericAAP(PimAnalogOpEnum::XOR2, {{m_objRes, m_numBits}, {m_objRes, m_numBits}}, {{m_objRes, m_numBits}});
 
     // # process higher bits of A
     // for j in 1..n-1:
-    //     carry = 0
-    //     for k in 0..n-1:
-    //         p   = A[j] AND B[k]           # partial product
-    //         s_in = Res[j + k]             # existing sum in column
-    //         c_in = carry                  # incoming carry
+    for (unsigned j = 1; j < m_numBits; ++j) {
+      // carry = 0
+      pimGenericAAP(PimAnalogOpEnum::XOR2, {{m_objTmp, 2}, {m_objTmp, 2}}, {{m_objTmp, 2}, {m_objTmp, 5}});
+      //     for k in 0..n-1:
+      for (unsigned k = 0; k < m_numBits; ++k) {
+        // Partial product: p = A[j] & B[k]
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objA, j}}, {{m_objTmp, 1}});
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objB, k}}, {{m_objTmp, 4}});
+        pimGenericAAP(PimAnalogOpEnum::AND2, {{m_objTmp, 1}, {m_objTmp, 4}});
 
-    //         # full-adder
-    //         sum   = p XOR s_in XOR c_in
-    //         carry = MAJ3(p, s_in, c_in)   # carry-out
+        // Full adder:
+        // sum = p XOR Res[j+k] XOR Cin
+        // carry = MAJ3(p, Res[j+k], Cin)
 
-    //         Res[j + k] = sum              # update column
-    //     Res[j + n] = carry                # propagate final carry
+        // prepare Res[j+k]
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objRes, j + k}}, {{m_objTmp, 0}, {m_objTmp, 3}});
+        // tmp0 = Res[j+k] XOR p
+        pimGenericAAP(PimAnalogOpEnum::XOR2, {{m_objTmp, 0}, {m_objTmp, 1}});
+        // tmp0 = tmp0 XOR Cin  -> holds sum
+        pimGenericAAP(PimAnalogOpEnum::XOR2, {{m_objTmp, 0}, {m_objTmp, 2}});
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objTmp, 0}}, {{m_objRes, j + k}});
 
+        // Cout = (A & B) | (Cin & (Res XOR p))
+        pimGenericAAP(PimAnalogOpEnum::AND2, {{m_objTmp, 1}, {m_objTmp, 5}});
+        pimGenericAAP(PimAnalogOpEnum::AND2, {{m_objTmp, 3}, {m_objTmp, 4}});
+        pimGenericAAP(PimAnalogOpEnum::OR2,  {{m_objTmp, 1}, {m_objTmp, 3}} , {{m_objTmp, 2}, {m_objTmp, 5}});
+      }
+      //     Res[j + n] = carry                # propagate final carry
+      pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objTmp, 2}}, {{m_objRes, j + m_numBits}});
+
+    }
   }
 };
 
@@ -482,6 +513,73 @@ public:
   TestFlexiDRAM() : TestPim("FlexiDRAM") {}
   virtual ~TestFlexiDRAM() {}
   virtual void runCore() { 
+    PimObjId m_objCin = pimAllocAssociated(m_objTmp, PIM_INT32); assert(m_objCin != -1);
+    // function Multiply(A[0..n-1], B[0..n-1]) -> Res[0..2n-1]:
+    // # initialize result
+    // for k in 0..n-1:
+    for (unsigned k = 0; k < m_numBits; ++k) {
+      //     Res[k] = A[0] AND B[k]      # partial product with LSB of A
+      // t0 = ROW_CLONE(a)
+      pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objA, 0}}, {{m_objTmp, 0}});
+
+      // t1 = ROW_CLONE(b)
+      pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objB, k}}, {{m_objTmp, 1}});
+
+      // t2 = zero  
+      pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objZero, 0}}, {{m_objTmp, 2}});
+
+      // Res[k] = MAJ3(t0, t1, t2)
+      pimGenericAAP(PimAnalogOpEnum::MAJ3, {{m_objTmp, 0}, {m_objTmp, 1}, {m_objTmp, 2}}, {{m_objRes, k}});
+    }
+
+    // Res[n] = 0
+    pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objZero, 0}}, {{m_objRes, m_numBits}});
+
+    // # process higher bits of A
+    // for j in 1..n-1:
+    for (unsigned j = 1; j < m_numBits; ++j) {
+      // carry = 0
+      pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objZero, 0}}, {{m_objCin, 0}});
+
+      for (unsigned k = 0; k < m_numBits; ++k) {
+        // Compute partial product p = A[j] & B[k]
+        // Use MAJ3(p0, p1, zero) to implement AND via majority with a zero input.
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objA, j}}, {{m_objTmp, 0}});
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objB, k}}, {{m_objTmp, 1}});
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objZero, 0}}, {{m_objTmp, 4}});
+        pimGenericAAP(PimAnalogOpEnum::MAJ3, {{m_objTmp, 0}, {m_objTmp, 1}, {m_objTmp, 4}});
+        // Full-adder: carry = MAJ3(p, Res[j+k], Cin); sum = XOR3(p, Res[j+k], Cin).
+        // MAJ3 clobbers its inputs, so compute carry first and then rebuild operands for the sum.
+
+        // Load operands for carry: p in tmp0, Res[j+k] in tmp1, Cin in tmp2
+        // t0 = ROW_CLONE(p)  (p already in tmp0)
+        // pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objTmp, 0}}, {{m_objTmp, 0}});
+        // t1 = ROW_CLONE(Res[j+k])
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objRes, j + k}}, {{m_objTmp, 1}});
+        // t2 = ROW_CLONE(cin)
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objCin, 0}}, {{m_objTmp, 2}});
+        // Compute carry into tmp3; note inputs may be overwritten by MAJ3
+        pimGenericAAP(PimAnalogOpEnum::MAJ3, {{m_objTmp, 0}, {m_objTmp, 1}, {m_objTmp, 2}}, {{m_objTmp, 3}});
+
+        // Reconstruct operands because MAJ3 clobbered them.
+        // Restore Res[j+k] into tmp0, restore Cin into tmp2, and use tmp4 to compute sum.
+        // t4 currently holds the partial-product slot; reload Res and Cin as needed.
+        // t0 = ROW_CLONE(Res[j+k])
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objRes, j + k}}, {{m_objTmp, 0}});
+        // t2 = ROW_CLONE(cin)
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objCin, 0}}, {{m_objTmp, 2}});
+        // Compute sum = XOR3(Res, Cin, p) placed in tmp4
+        pimGenericAAP(PimAnalogOpEnum::XOR3, {{m_objTmp, 0}, {m_objTmp, 2}, {m_objTmp, 4}});
+
+        // Update carry (Cin) with computed carry and write sum back to result column
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objTmp, 3}}, {{m_objCin, 0}});
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objTmp, 4}}, {{m_objRes, j + k}});
+      }
+      //     Res[j + n] = carry                # propagate final carry
+      pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objCin, 0}}, {{m_objRes, j + m_numBits}});
+    }
+
+
   }
 };
 
@@ -491,6 +589,81 @@ public:
   TestDRISA1T1CNor() : TestPim("DRISA-1T1C-nor") {}
   virtual ~TestDRISA1T1CNor() {}
   virtual void runCore() {
+    PimObjId objDCC = pimAllocAssociated(m_objTmp, PIM_INT32); assert(objDCC != -1);
+    PimObjId objDCCN = pimAllocAssociated(m_objTmp, PIM_INT32); assert(objDCC != -1);
+    // Ref: MIMDRAM/microworkloads/11_multu-plus.c
+    
+    /*unsigned *v1 = VECTOR(vals1[0]);*/
+    for (unsigned k = 0; k < m_numBits; ++k) {
+      /*unsigned *v2 = VECTOR(vals2[k]);*/
+      /*unsigned *out = VECTOR(output[k]);*/
+      /*AAP_VECTORS (B_T0, v1        )*/
+      pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objA, 0}}, {{m_objTmp, 0}});
+
+      /*AAP_VECTORS (B_T1, v2        )*/
+      pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objB, k}}, {{m_objTmp, 1}});
+
+      /*AAP_VECTORS (B_T2, C_0       )*/
+      pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objZero, 0}}, {{m_objTmp, 2}});
+
+      /*AAP_VECTORS (out , B_T0_T1_T2)*/
+      pimGenericAAP(PimAnalogOpEnum::MAJ3, {{m_objTmp, 0}, {m_objTmp, 1}, {m_objTmp, 2}}, {{m_objRes, k}});
+    }
+
+    /*AAP_VECTORS (VECTOR(output[col_length]), C_0);*/
+    pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objZero, 0}}, {{m_objRes, m_numBits}});
+
+    for (unsigned j = 1; j < m_numBits; ++j) {
+      /*unsigned *v1 = VECTOR(vals1[j]);*/
+
+      /*AAP_VECTORS (B_DCC1, C_0)*/
+      pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objZero, 0}}, {{objDCC, 1}});
+
+      for (unsigned k = 0; k < m_numBits; ++k) {
+        /*unsigned *v2 = VECTOR(vals2[k]);*/
+        /*unsigned *out = VECTOR(output[j + k]);*/
+        /*AAP_VECTORS (B_T0        , v1        )*/
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objA, j}}, {{m_objTmp, 0}});
+
+        /*AAP_VECTORS (B_T1        , v2        )*/
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objB, k}}, {{m_objTmp, 1}});
+
+        /*AAP_VECTORS (B_T2        , C_0       )*/
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objZero, 0}}, {{m_objTmp, 2}});
+
+        /*AP_VECTOR   (B_T0_T1_T2              )*/
+        pimGenericAAP(PimAnalogOpEnum::MAJ3, {{m_objTmp, 0}, {m_objTmp, 1}, {m_objTmp, 2}});
+
+        /*AAP_VECTORS (B_T2_T3     , B_DCC1    )*/
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{objDCC, 1}}, {{m_objTmp, 2}, {m_objTmp, 3}});
+
+        /*AAP_VECTORS (B_DCC1      , out       )*/
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objRes, j + k}}, {{objDCC, 1}});
+
+        /*AP_VECTOR   (B_DCC1_T0_T3            )*/
+        pimGenericAAP(PimAnalogOpEnum::MAJ3, {{objDCC, 1}, {m_objTmp, 0}, {m_objTmp, 3}});
+      
+        // objDCCN[1] = ~objDCC[1] # RowRead = 2
+        pimOpReadRowToSa(objDCC, 1);
+        pimOpMove(m_objA, PIM_RREG_SA, PIM_RREG_R1);
+        pimOpNor(m_objA, PIM_RREG_SA, PIM_RREG_R1, PIM_RREG_SA);
+        pimOpWriteSaToRow(objDCCN, 1);  
+
+        /*AAP_VECTORS (B_T0_T3     , B_DCC1N   )*/
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{objDCCN, 1}}, {{m_objTmp, 0}, {m_objTmp, 3}});
+
+        /*AP_VECTOR   (B_T0_T1_T2              )*/
+        pimGenericAAP(PimAnalogOpEnum::MAJ3, {{m_objTmp, 0}, {m_objTmp, 1}, {m_objTmp, 2}});
+
+        /*AAP_VECTORS (B_T1        , out       )*/
+        pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objRes, j + k}}, {{m_objTmp, 1}});
+
+        /*AAP_VECTORS (out         , B_T1_T2_T3)*/
+        pimGenericAAP(PimAnalogOpEnum::MAJ3, {{m_objTmp, 1}, {m_objTmp, 2}, {m_objTmp, 3}}, {{m_objRes, j + k}});
+      }
+      /*AAP_VECTORS (VECTOR(output[j + col_length]), B_DCC1)*/
+      pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{objDCC, 1}}, {{m_objRes, j + m_numBits}});
+    }
   }
 };
 
@@ -499,7 +672,87 @@ public:
   TestDRISA1T1CMixed() : TestPim("DRISA-1T1C-mixed") {}
   virtual ~TestDRISA1T1CMixed() {}
   virtual void runCore() {
-   
+
+    PimObjId m_objCin = pimAllocAssociated(m_objA, PIM_UINT8); assert(m_objCin != -1);
+    PimObjId m_objSumOut = pimAllocAssociated(m_objA, PIM_UINT8); assert(m_objSumOut != -1);
+    PimObjId m_partialProduct = pimAllocAssociated(m_objA, PIM_UINT8); assert(m_partialProduct != -1);
+    // function Multiply(A[0..n-1], B[0..n-1]) -> Res[0..2n-1]:
+    // # initialize result
+    // for k in 0..n-1:
+    for (unsigned k = 0; k < m_numBits; ++k) {
+      //     Res[k] = A[0] AND B[k]      # partial product with LSB of A
+      // r1 = ROW_CLONE(a)
+      pimOpReadRowToSa(m_objA, 0);
+      pimOpMove(m_objA, PIM_RREG_SA, PIM_RREG_R1);
+      // sa = ROW_CLONE(b)
+      pimOpReadRowToSa(m_objB, k);
+      // sa = AND2(sa, r1)    // ab
+      pimOpAnd(m_objTmp, PIM_RREG_SA, PIM_RREG_R1, PIM_RREG_SA);
+      // Res[k] = sa
+      pimOpWriteSaToRow(m_objRes, k);
+    }
+
+    // Res[n] = 0                       # seed carry column
+    pimOpXnor(m_objTmp, PIM_RREG_SA, PIM_RREG_SA, PIM_RREG_SA);
+    pimOpNot(m_objTmp, PIM_RREG_SA, PIM_RREG_SA);
+    pimOpWriteSaToRow(m_objRes, m_numBits);
+
+    // # process higher bits of A
+    // for j in 1..n-1:
+    for (unsigned j = 1; j < m_numBits; ++j) {
+      // carry = 0
+      pimOpXnor(m_objTmp, PIM_RREG_SA, PIM_RREG_SA, PIM_RREG_SA);
+      pimOpNot(m_objTmp, PIM_RREG_SA, PIM_RREG_SA);
+      pimOpWriteSaToRow(m_objCin, 0);
+
+      for (unsigned k = 0; k < m_numBits; ++k) {
+        // Partial product: p = A[j] & B[k]
+        pimOpReadRowToSa(m_objA, j);
+        pimOpMove(m_objA, PIM_RREG_SA, PIM_RREG_R1);
+        pimOpReadRowToSa(m_objB, k);
+        pimOpNand(m_partialProduct, PIM_RREG_SA, PIM_RREG_R1, PIM_RREG_SA);
+        pimOpNot(m_partialProduct, PIM_RREG_SA, PIM_RREG_SA);
+        pimOpWriteSaToRow(m_partialProduct, 0);
+
+        // Full adder:
+        // t0 = XNOR(A, B)           // intermediate for Sum
+        // pimOpReadRowToSa(m_objA, i);
+        pimOpMove(m_objA, PIM_RREG_SA, PIM_RREG_R1);           // t0 = a
+        pimOpReadRowToSa(m_objRes, j + k);                           // sa = b
+        pimOpXnor(m_objB, PIM_RREG_SA, PIM_RREG_R1, PIM_RREG_SA); // sa = XNOR(b,a)
+        pimOpWriteSaToRow(m_objTmp, 0);                        // tmp[0] = sa
+
+        // Sum = XNOR(s1, Cin)       // correct full-adder Sum
+        pimOpMove(m_objA, PIM_RREG_SA, PIM_RREG_R1);           // t0 = a
+        pimOpReadRowToSa(m_objCin, 0);
+        pimOpXnor(m_objB, PIM_RREG_SA, PIM_RREG_R1, PIM_RREG_SA); // sa = XNOR(sa,cin)
+        pimOpWriteSaToRow(m_objSumOut, 0);                        // sum = sa
+
+        // t1 = NOR(A, B)            // part of Cout logic
+        pimOpReadRowToSa(m_partialProduct, 0);
+        pimOpMove(m_objA, PIM_RREG_SA, PIM_RREG_R1);           // t0 = a
+        pimOpReadRowToSa(m_objRes, j + k);                           // sa = b
+        pimOpNor(m_objB, PIM_RREG_SA, PIM_RREG_R1, PIM_RREG_SA); // sa = NOR(b,a)
+        pimOpWriteSaToRow(m_objTmp, 1);                        // tmp[1] = sa
+
+        // t2 = NOR(Cin, t0)         // second part of Cout logic
+        pimOpReadRowToSa(m_objCin, 0);
+        pimOpMove(m_objA, PIM_RREG_SA, PIM_RREG_R1);           // t0 = a
+        pimOpReadRowToSa(m_objTmp, 0);                           // sa = tmp[0]
+        pimOpNor(m_objB, PIM_RREG_SA, PIM_RREG_R1, PIM_RREG_R1); // r1 = NOR(Cin,s1)
+
+        // Cin = Cout = NOR(t1, t2)        // final Cout
+        pimOpReadRowToSa(m_objTmp, 1);
+        pimOpNor(m_objTmp, PIM_RREG_SA, PIM_RREG_R1, PIM_RREG_SA); // sa = NOR(t1,sa)
+        pimOpWriteSaToRow(m_objCin, 0);                    // cout
+
+        // Res[j + k] = Sum
+        pimOpReadRowToSa(m_objSumOut, 0);
+        pimOpWriteSaToRow(m_objRes, j + k);                // res[j
+      }
+      //     Res[j + n] = carry                # propagate final carry
+      pimGenericAAP(PimAnalogOpEnum::ROW_CLONE, {{m_objCin, 0}}, {{m_objRes, j + m_numBits}});
+    }
   }
 };
 
